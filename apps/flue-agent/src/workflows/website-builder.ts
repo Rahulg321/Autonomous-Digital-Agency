@@ -1,4 +1,10 @@
-import { defineAgent, defineWorkflow, type WorkflowRouteHandler } from '@flue/runtime';
+import {
+	defineAgent,
+	defineWorkflow,
+	type FlueHarness,
+	type ShellResult,
+	type WorkflowRouteHandler,
+} from '@flue/runtime';
 import { cloudflareSandbox } from '@flue/runtime/cloudflare';
 import { getSandbox } from '@cloudflare/sandbox';
 import * as v from 'valibot';
@@ -17,10 +23,41 @@ const builder = defineAgent(({ id, env }) => ({
 	instructions: [
 		'You are a website builder agent working inside a Linux sandbox.',
 		`The starter template lives at ${PROJECT_DIR}.`,
-		'Use shell commands to install deps, run apply-brief, build, and edit files.',
-		'Prefer bun over npm. Read harness docs in docs/HARNESS.md when unsure.',
+		'Use shell commands to edit files and run validation when asked.',
+		'Prefer bun over npm.',
 	].join(' '),
 }));
+
+function log(step: string, data?: Record<string, unknown>) {
+	console.log(
+		JSON.stringify({
+			workflow: 'website-builder',
+			step,
+			...data,
+			timestamp: new Date().toISOString(),
+		}),
+	);
+}
+
+async function runShell(
+	harness: FlueHarness,
+	step: string,
+	command: string,
+	options?: { cwd?: string },
+): Promise<ShellResult> {
+	log(`${step}:start`, { command, cwd: options?.cwd ?? WORKSPACE });
+	const result = await harness.shell(command, options);
+	log(`${step}:done`, {
+		command,
+		exitCode: result.exitCode,
+		stdoutPreview: result.stdout.slice(0, 500),
+		stderrPreview: result.stderr.slice(0, 500),
+	});
+	if (result.exitCode !== 0) {
+		throw new Error(`${step} failed: ${result.stderr || result.stdout}`);
+	}
+	return result;
+}
 
 export default defineWorkflow({
 	agent: builder,
@@ -30,38 +67,52 @@ export default defineWorkflow({
 	}),
 
 	async run({ harness, input }) {
+		log('run:start', { cloneTemplate: input.cloneTemplate });
+
 		if (input.cloneTemplate) {
-			const clone = await harness.shell(
+			await runShell(
+				harness,
+				'git-clone',
 				`git clone --depth 1 ${TEMPLATE_REPO} ${PROJECT_DIR}`,
 			);
-			if (clone.exitCode !== 0) {
-				throw new Error(`git clone failed: ${clone.stderr || clone.stdout}`);
-			}
-
-			const install = await harness.shell('bun install', { cwd: PROJECT_DIR });
-			if (install.exitCode !== 0) {
-				throw new Error(`bun install failed: ${install.stderr || install.stdout}`);
-			}
+			await runShell(harness, 'bun-install', 'bun install', { cwd: PROJECT_DIR });
 		}
 
 		if (input.briefJson) {
+			log('brief:write-custom');
 			await harness.fs.writeFile(`${PROJECT_DIR}/brief.json`, input.briefJson);
 		} else {
-			await harness.shell(`cp brief.example.json brief.json`, { cwd: PROJECT_DIR });
+			await runShell(harness, 'brief:copy-example', 'cp brief.example.json brief.json', {
+				cwd: PROJECT_DIR,
+			});
 		}
 
-		const session = await harness.session();
-		const response = await session.prompt(
-			[
-				`Brief is in ${PROJECT_DIR}/brief.json (create from brief.example.json if missing).`,
-				`Run: cd ${PROJECT_DIR} && bun run apply-brief && bun run build`,
-				'Report what theme was applied and whether the build succeeded.',
-			].join('\n'),
+		const applyBrief = await runShell(
+			harness,
+			'apply-brief',
+			'bun run apply-brief',
+			{ cwd: PROJECT_DIR },
 		);
 
+		let briefApplied: string | undefined;
+		try {
+			briefApplied = await harness.fs.readFile(`${PROJECT_DIR}/brief.applied.json`);
+			log('brief:applied', { briefApplied: briefApplied.slice(0, 500) });
+		} catch {
+			log('brief:applied-missing');
+		}
+
+		const build = await runShell(harness, 'build', 'bun run build', {
+			cwd: PROJECT_DIR,
+		});
+
+		log('run:complete', { projectDir: PROJECT_DIR });
+
 		return {
-			message: response.text,
 			projectDir: PROJECT_DIR,
+			applyBriefStdout: applyBrief.stdout,
+			buildStdout: build.stdout.slice(0, 1000),
+			briefApplied: briefApplied ?? null,
 		};
 	},
 });
