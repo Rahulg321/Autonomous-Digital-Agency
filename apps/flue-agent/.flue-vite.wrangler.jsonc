@@ -5,27 +5,20 @@
   "compatibility_flags": [
     "nodejs_compat"
   ],
-  "exports": {
-    "FlueHelloWorldAgent": {
-      "type": "durable-object",
-      "storage": "sqlite"
-    },
-    "FlueRegistry": {
-      "type": "durable-object",
-      "storage": "sqlite"
-    },
-    "FlueTravelAgent": {
-      "type": "durable-object",
-      "storage": "sqlite"
-    },
-    "FlueTranslateWorkflow": {
-      "type": "durable-object",
-      "storage": "sqlite"
+  "containers": [
+    {
+      "class_name": "Sandbox",
+      "image": "./Dockerfile",
+      "instance_type": "lite",
+      "max_instances": 3
     }
-  },
-  "main": ".flue-vite/_entry.ts",
+  ],
   "durable_objects": {
     "bindings": [
+      {
+        "name": "Sandbox",
+        "class_name": "Sandbox"
+      },
       {
         "name": "FLUE_HELLO_WORLD_AGENT",
         "class_name": "FlueHelloWorldAgent"
@@ -39,9 +32,27 @@
         "class_name": "FlueTranslateWorkflow"
       },
       {
+        "name": "FLUE_WEBSITE_BUILDER_WORKFLOW",
+        "class_name": "FlueWebsiteBuilderWorkflow"
+      },
+      {
         "name": "FLUE_REGISTRY",
         "class_name": "FlueRegistry"
       }
     ]
-  }
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "FlueHelloWorldAgent",
+        "FlueRegistry",
+        "FlueTravelAgent",
+        "FlueTranslateWorkflow",
+        "FlueWebsiteBuilderWorkflow",
+        "Sandbox"
+      ]
+    }
+  ],
+  "main": ".flue-vite/_entry.ts"
 }

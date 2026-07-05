@@ -3,22 +3,28 @@
 	"name": "flue-agent",
 	"compatibility_date": "2026-06-01",
 	"compatibility_flags": ["nodejs_compat"],
-	"exports": {
-		"FlueHelloWorldAgent": {
-			"type": "durable-object",
-			"storage": "sqlite"
-		},
-		"FlueRegistry": {
-			"type": "durable-object",
-			"storage": "sqlite"
-		},
-		"FlueTravelAgent": {
-			"type": "durable-object",
-			"storage": "sqlite"
-		},
-		"FlueTranslateWorkflow": {
-			"type": "durable-object",
-			"storage": "sqlite"
+	"containers": [
+		{
+			"class_name": "Sandbox",
+			"image": "./Dockerfile",
+			"instance_type": "lite",
+			"max_instances": 3
 		}
-	}
+	],
+	"durable_objects": {
+		"bindings": [{ "name": "Sandbox", "class_name": "Sandbox" }]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": [
+				"FlueHelloWorldAgent",
+				"FlueRegistry",
+				"FlueTravelAgent",
+				"FlueTranslateWorkflow",
+				"FlueWebsiteBuilderWorkflow",
+				"Sandbox"
+			]
+		}
+	]
 }
