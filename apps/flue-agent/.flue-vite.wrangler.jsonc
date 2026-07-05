@@ -1,0 +1,47 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "flue-agent",
+  "compatibility_date": "2026-06-01",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "exports": {
+    "FlueHelloWorldAgent": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "FlueRegistry": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "FlueTravelAgent": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    },
+    "FlueTranslateWorkflow": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+  "main": ".flue-vite/_entry.ts",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "FLUE_HELLO_WORLD_AGENT",
+        "class_name": "FlueHelloWorldAgent"
+      },
+      {
+        "name": "FLUE_TRAVEL_AGENT",
+        "class_name": "FlueTravelAgent"
+      },
+      {
+        "name": "FLUE_TRANSLATE_WORKFLOW",
+        "class_name": "FlueTranslateWorkflow"
+      },
+      {
+        "name": "FLUE_REGISTRY",
+        "class_name": "FlueRegistry"
+      }
+    ]
+  }
+}
