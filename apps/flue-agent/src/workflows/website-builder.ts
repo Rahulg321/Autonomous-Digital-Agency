@@ -2,6 +2,7 @@ import {
 	defineAgent,
 	defineWorkflow,
 	type FlueHarness,
+	type ShellOptions,
 	type ShellResult,
 	type WorkflowRouteHandler,
 } from '@flue/runtime';
@@ -43,7 +44,7 @@ async function runShell(
 	harness: FlueHarness,
 	step: string,
 	command: string,
-	options?: { cwd?: string },
+	options?: ShellOptions,
 ): Promise<ShellResult> {
 	log(`${step}:start`, { command, cwd: options?.cwd ?? WORKSPACE });
 	const result = await harness.shell(command, options);
@@ -59,6 +60,8 @@ async function runShell(
 	return result;
 }
 
+const BUILD_TIMEOUT_MS = 5 * 60 * 1000;
+
 export default defineWorkflow({
 	agent: builder,
 	input: v.object({
@@ -69,50 +72,59 @@ export default defineWorkflow({
 	async run({ harness, input }) {
 		log('run:start', { cloneTemplate: input.cloneTemplate });
 
-		if (input.cloneTemplate) {
-			await runShell(
-				harness,
-				'git-clone',
-				`git clone --depth 1 ${TEMPLATE_REPO} ${PROJECT_DIR}`,
-			);
-			await runShell(harness, 'bun-install', 'bun install', { cwd: PROJECT_DIR });
-		}
+		try {
+			if (input.cloneTemplate) {
+				await runShell(
+					harness,
+					'git-clone',
+					`git clone --depth 1 ${TEMPLATE_REPO} ${PROJECT_DIR}`,
+				);
+				await runShell(harness, 'bun-install', 'bun install', { cwd: PROJECT_DIR });
+			}
 
-		if (input.briefJson) {
-			log('brief:write-custom');
-			await harness.fs.writeFile(`${PROJECT_DIR}/brief.json`, input.briefJson);
-		} else {
-			await runShell(harness, 'brief:copy-example', 'cp brief.example.json brief.json', {
+			if (input.briefJson) {
+				log('brief:write-custom');
+				await harness.fs.writeFile(`${PROJECT_DIR}/brief.json`, input.briefJson);
+			} else {
+				await runShell(harness, 'brief:copy-example', 'cp brief.example.json brief.json', {
+					cwd: PROJECT_DIR,
+				});
+			}
+
+			const applyBrief = await runShell(
+				harness,
+				'apply-brief',
+				'bun run apply-brief',
+				{ cwd: PROJECT_DIR },
+			);
+
+			// Run build immediately — do not use harness.fs.readFile here; it can
+			// stall the workflow DO after apply-brief in production.
+			const build = await runShell(harness, 'build', 'bun run build', {
+				cwd: PROJECT_DIR,
+				timeoutMs: BUILD_TIMEOUT_MS,
+			});
+
+			const briefApplied = await harness.shell('cat brief.applied.json', {
 				cwd: PROJECT_DIR,
 			});
+
+			log('run:complete', {
+				projectDir: PROJECT_DIR,
+				briefAppliedExitCode: briefApplied.exitCode,
+			});
+
+			return {
+				projectDir: PROJECT_DIR,
+				applyBriefStdout: applyBrief.stdout,
+				buildStdout: build.stdout.slice(0, 1000),
+				briefApplied: briefApplied.exitCode === 0 ? briefApplied.stdout : null,
+			};
+		} catch (error) {
+			log('run:error', {
+				message: error instanceof Error ? error.message : String(error),
+			});
+			throw error;
 		}
-
-		const applyBrief = await runShell(
-			harness,
-			'apply-brief',
-			'bun run apply-brief',
-			{ cwd: PROJECT_DIR },
-		);
-
-		let briefApplied: string | undefined;
-		try {
-			briefApplied = await harness.fs.readFile(`${PROJECT_DIR}/brief.applied.json`);
-			log('brief:applied', { briefApplied: briefApplied.slice(0, 500) });
-		} catch {
-			log('brief:applied-missing');
-		}
-
-		const build = await runShell(harness, 'build', 'bun run build', {
-			cwd: PROJECT_DIR,
-		});
-
-		log('run:complete', { projectDir: PROJECT_DIR });
-
-		return {
-			projectDir: PROJECT_DIR,
-			applyBriefStdout: applyBrief.stdout,
-			buildStdout: build.stdout.slice(0, 1000),
-			briefApplied: briefApplied ?? null,
-		};
 	},
 });
