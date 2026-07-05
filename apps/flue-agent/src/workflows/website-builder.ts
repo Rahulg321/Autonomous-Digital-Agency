@@ -60,8 +60,6 @@ async function runShell(
 	return result;
 }
 
-const BUILD_TIMEOUT_MS = 5 * 60 * 1000;
-
 export default defineWorkflow({
 	agent: builder,
 	input: v.object({
@@ -91,34 +89,20 @@ export default defineWorkflow({
 				});
 			}
 
-			const applyBrief = await runShell(
+			// Single shell invocation: separate apply-brief → build RPC hops can stall
+			// the workflow DO in production after apply-brief completes in the container.
+			const pipeline = await runShell(
 				harness,
-				'apply-brief',
-				'bun run apply-brief',
+				'apply-and-build',
+				'bun run apply-brief && bun run build && cat brief.applied.json',
 				{ cwd: PROJECT_DIR },
 			);
 
-			// Run build immediately — do not use harness.fs.readFile here; it can
-			// stall the workflow DO after apply-brief in production.
-			const build = await runShell(harness, 'build', 'bun run build', {
-				cwd: PROJECT_DIR,
-				timeoutMs: BUILD_TIMEOUT_MS,
-			});
-
-			const briefApplied = await harness.shell('cat brief.applied.json', {
-				cwd: PROJECT_DIR,
-			});
-
-			log('run:complete', {
-				projectDir: PROJECT_DIR,
-				briefAppliedExitCode: briefApplied.exitCode,
-			});
+			log('run:complete', { projectDir: PROJECT_DIR });
 
 			return {
 				projectDir: PROJECT_DIR,
-				applyBriefStdout: applyBrief.stdout,
-				buildStdout: build.stdout.slice(0, 1000),
-				briefApplied: briefApplied.exitCode === 0 ? briefApplied.stdout : null,
+				pipelineStdout: pipeline.stdout.slice(0, 2000),
 			};
 		} catch (error) {
 			log('run:error', {
